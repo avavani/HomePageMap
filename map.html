@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Map Section</title>
+<style>
+  @font-face {
+    font-family: 'Satoshi';
+    src: url('satoshi/Satoshi-Regular.otf') format('opentype');
+    font-weight: 400;
+    font-style: normal;
+  }
+  @font-face {
+    font-family: 'Satoshi';
+    src: url('satoshi/Satoshi-Medium.otf') format('opentype');
+    font-weight: 500;
+    font-style: normal;
+  }
+  @font-face {
+    font-family: 'Satoshi';
+    src: url('satoshi/Satoshi-Bold.otf') format('opentype');
+    font-weight: 700;
+    font-style: normal;
+  }
+  @font-face {
+    font-family: 'Satoshi';
+    src: url('satoshi/Satoshi-Light.otf') format('opentype');
+    font-weight: 300;
+    font-style: normal;
+  }
+
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #fff; color: #0f172a; }
+
+  .map {
+    display: flex;
+    height: 100vh;
+    width: 100%;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* ── Left Panel ── */
+  .map__left {
+    flex: 0 0 36%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 4rem 3rem 4rem 5rem;
+    z-index: 10;
+    position: relative;
+  }
+
+  .map__left::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 80px;
+    background: linear-gradient(to right, transparent, #fff);
+    pointer-events: none;
+  }
+
+  .map__title {
+    font-family: 'Satoshi';
+    font-size: clamp(2.4rem, 4vw, 3.8rem);
+    line-height: 1.1;
+    font-weight: 400;
+    margin-bottom: 1.5rem;
+  }
+
+  .map__title em { font-style: italic; }
+
+  .map__desc {
+    font-family: 'Satoshi';
+    font-size: 1rem;
+    line-height: 1.6;
+    color: #64748b;
+    max-width: 400px;
+    margin-bottom: 2rem;
+  }
+
+  /* ── Right Panel ── */
+  .map__right {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+
+  #gridCanvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+
+  /* ── Notification Popup ── */
+  .notif {
+    position: absolute;
+    pointer-events: none;
+    z-index: 20;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+  }
+
+  .notif.active { opacity: 1; transform: translateY(0); }
+
+  .notif__inner {
+    background: #fff;
+    border: 1px solid rgba(37,99,235,0.25);
+    border-radius: 10px;
+    padding: 0.55rem 0.9rem;
+    white-space: nowrap;
+    font-family: 'DM Sans', sans-serif;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  }
+
+  .notif__city {
+    font-size: 0.68rem;
+    font-family: 'Satoshi';
+    font-weight: 500;
+    color: #1e293b;
+    margin-bottom: 0.15rem;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+
+  .notif__city::before {
+    content: '';
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: #2563eb;
+    flex-shrink: 0;
+  }
+
+  .notif__meeting {
+    font-size: 0.75rem;
+    font-family: 'Satoshi';
+    color: #475569;
+  }
+
+  /* Edge fades */
+  .map__right::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(to right, #fff, transparent 60px),
+      linear-gradient(to left, #fff, transparent 40px),
+      linear-gradient(to bottom, #fff, transparent 40px),
+      linear-gradient(to top, #fff, transparent 40px);
+    pointer-events: none;
+    z-index: 5;
+  }
+</style>
+</head>
+<body>
+<div class="map">
+  <div class="map__left">
+    <h1 class="map__title">Lorem Ipsum</h1>
+    <p class="map__desc">Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+  </div>
+
+  <div class="map__right">
+    <canvas id="gridCanvas"></canvas>
+    <div id="notif1" class="notif"><div class="notif__inner"><div class="notif__city"></div><div class="notif__meeting"></div></div></div>
+    <div id="notif2" class="notif"><div class="notif__inner"><div class="notif__city"></div><div class="notif__meeting"></div></div></div>
+    <div id="notif3" class="notif"><div class="notif__inner"><div class="notif__city"></div><div class="notif__meeting"></div></div></div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// VISUAL CONFIG — tune all map appearance & interaction here
+// ═══════════════════════════════════════════════════════════════
+
+// ── Map size & position ──────────────────────────────────────
+const MAP_SCALE         = 0.7;   // Overall map size (1.0 = fills the right panel)
+const MAP_OFFSET_X      = 0.8;   // Horizontal alignment: 0 = far left, 0.5 = center, 1 = far right
+const MAP_OFFSET_Y      = 0.5;   // Vertical alignment:   0 = top,      0.5 = center, 1 = bottom
+
+// ── Dot appearance ───────────────────────────────────────────
+const DOT_SIZE_FACTOR   = 0.40;  // Dot radius as fraction of cell size (larger = bigger dots)
+
+// ── Mouse hover — displacement ───────────────────────────────
+const HOVER_RADIUS      = 120;   // Pixels from cursor where dots are pushed aside
+const HOVER_STRENGTH    = 1.5;   // Max pixel displacement of a dot at cursor center
+
+// ── Mouse hover — brightness ─────────────────────────────────
+const HOVER_ALPHA_RADIUS = 150;  // Pixels from cursor where dots brighten
+const HOVER_ALPHA_BOOST  = 0.3; // Opacity added to dots at cursor center (0–1)
+
+// ── Ripple effect ────────────────────────────────────────────
+const RIPPLE_CHANCE     = 0.25;  // Probability (0–1) of spawning a ripple per mousemove
+const RIPPLE_RADIUS_MIN = 80;    // Minimum ripple spread radius in pixels
+const RIPPLE_RADIUS_MAX = 140;   // Maximum ripple spread radius in pixels
+
+// ═══════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────
+// Data paths & grid resolution
+// ─────────────────────────────────────────────────
+const STATES_GEOJSON_PATH = './states_grid.geojson';
+const CITIES_GEOJSON_PATH = './cities_grid.geojson';
+
+const GRID_COLS = 86;
+const GRID_ROWS = 52;
+
+const MEETINGS = [
+  "Planning Board Meeting",
+  "Housing Board Meeting",
+  "City Council Meeting",
+  "Zoning Board Hearing",
+  "Building Permit Review",
+  "Development Committee"
+];
+
+// ─────────────────────────────────────────────────
+// State
+// ─────────────────────────────────────────────────
+const canvas = document.getElementById('gridCanvas');
+const ctx = canvas.getContext('2d');
+let W, H, cellW, cellH, dpr, offsetX, offsetY;
+
+const landSet = new Set();
+const cityMap = new Map();
+const cityList = [];
+let landArray = [];
+let gridCols = GRID_COLS;
+let gridRows = GRID_ROWS;
+
+let mouseX = -1000, mouseY = -1000;
+const ripples = [];
+const activeGlows = new Map();
+
+// ─────────────────────────────────────────────────
+// Geometry: centroid of a geojson geometry
+// ─────────────────────────────────────────────────
+function centroid(geom) {
+  const pts = [];
+  const collect = (coords, depth) => {
+    if (depth === 0) { pts.push(coords); return; }
+    for (const c of coords) collect(c, depth - 1);
+  };
+  if (geom.type === 'Point') return geom.coordinates;
+  if (geom.type === 'Polygon') collect(geom.coordinates, 2);
+  else if (geom.type === 'MultiPolygon') collect(geom.coordinates, 3);
+  if (!pts.length) return null;
+  return [
+    pts.reduce((s, p) => s + p[0], 0) / pts.length,
+    pts.reduce((s, p) => s + p[1], 0) / pts.length
+  ];
+}
+
+// ─────────────────────────────────────────────────
+// Load geojson, grid-ify, trim to extent
+// ─────────────────────────────────────────────────
+async function loadData() {
+  const [statesJson, citiesJson] = await Promise.all([
+    fetch(STATES_GEOJSON_PATH).then(r => r.json()),
+    fetch(CITIES_GEOJSON_PATH).then(r => r.json())
+  ]);
+
+  // ── Collect all centroids for bounds ──
+  const allPts = [];
+  const cityFeatures = [];
+  const seenCities = new Set();
+
+  for (const feat of citiesJson.features) {
+    const state = (feat.properties.State || '').trim();
+    const name = feat.properties.City || '';
+    const c = centroid(feat.geometry);
+    if (!c) continue;
+    allPts.push(c);
+    const key = name + state;
+    if (!seenCities.has(key)) {
+      seenCities.add(key);
+      cityFeatures.push({ name, state, x: c[0], y: c[1] });
+    }
+  }
+
+  const statePts = [];
+  for (const feat of statesJson.features) {
+    const c = centroid(feat.geometry);
+    if (c) { statePts.push(c); allPts.push(c); }
+  }
+
+  // ── Compute bounds ──
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const [x, y] of allPts) {
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+  }
+  const rX = maxX - minX || 1;
+  const rY = maxY - minY || 1;
+
+  // ── Grid-ify states ──
+  const rawLand = new Set();
+  for (const [x, y] of statePts) {
+    const col = Math.min(Math.floor(((x - minX) / rX) * GRID_COLS), GRID_COLS - 1);
+    const row = Math.min(Math.floor((1 - (y - minY) / rY) * GRID_ROWS), GRID_ROWS - 1);
+    rawLand.add(`${col},${row}`);
+  }
+
+  // ── Grid-ify cities ──
+  const rawCityMap = new Map();
+  for (const c of cityFeatures) {
+    const col = Math.min(Math.floor(((c.x - minX) / rX) * GRID_COLS), GRID_COLS - 1);
+    const row = Math.min(Math.floor((1 - (c.y - minY) / rY) * GRID_ROWS), GRID_ROWS - 1);
+    const key = `${col},${row}`;
+    rawLand.add(key);
+    if (!rawCityMap.has(key)) rawCityMap.set(key, { name: c.name, state: c.state });
+  }
+
+  // ── Trim to occupied extent, remap so (0,0) is top-left ──
+  let cMin = GRID_COLS, cMax = 0, rMin = GRID_ROWS, rMax = 0;
+  for (const key of rawLand) {
+    const [c, r] = key.split(',').map(Number);
+    if (c < cMin) cMin = c; if (c > cMax) cMax = c;
+    if (r < rMin) rMin = r; if (r > rMax) rMax = r;
+  }
+
+  for (const key of rawLand) {
+    const [c, r] = key.split(',').map(Number);
+    const nc = c - cMin;
+    const nr = r - rMin;
+    landSet.add(`${nc},${nr}`);
+  }
+
+  for (const [key, val] of rawCityMap) {
+    const [c, r] = key.split(',').map(Number);
+    const nc = c - cMin;
+    const nr = r - rMin;
+    const nk = `${nc},${nr}`;
+    cityMap.set(nk, val);
+    cityList.push({ ...val, col: nc, row: nr });
+  }
+
+  // Materialise for draw loop
+  for (const key of landSet) {
+    const [c, r] = key.split(',').map(Number);
+    landArray.push([c, r]);
+  }
+
+  gridCols = cMax - cMin + 1;
+  gridRows = rMax - rMin + 1;
+
+  resize();
+  requestAnimationFrame(draw);
+  setTimeout(showNotification, 600);
+  setInterval(showNotification, 4000);
+}
+
+// ─────────────────────────────────────────────────
+// Resize
+// ─────────────────────────────────────────────────
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  W = rect.width;
+  H = rect.height;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cellW = (W * MAP_SCALE) / (gridCols + 2);
+  cellH = (H * MAP_SCALE) / (gridRows + 2);
+  offsetX = (W - cellW * (gridCols + 2)) * MAP_OFFSET_X;
+  offsetY = (H - cellH * (gridRows + 2)) * MAP_OFFSET_Y;
+}
+
+// ─────────────────────────────────────────────────
+// Mouse interaction
+// ─────────────────────────────────────────────────
+const mapRight = document.querySelector('.map__right');
+mapRight.addEventListener('mousemove', e => {
+  const rect = mapRight.getBoundingClientRect();
+  mouseX = e.clientX - rect.left;
+  mouseY = e.clientY - rect.top;
+  if (Math.random() < RIPPLE_CHANCE) {
+    ripples.push({ x: mouseX, y: mouseY, t: performance.now(), maxR: RIPPLE_RADIUS_MIN + Math.random() * (RIPPLE_RADIUS_MAX - RIPPLE_RADIUS_MIN) });
+  }
+});
+mapRight.addEventListener('mouseleave', () => { mouseX = -1000; mouseY = -1000; });
+
+// ─────────────────────────────────────────────────
+// Notifications
+// ─────────────────────────────────────────────────
+const notifEls = [document.getElementById('notif1'), document.getElementById('notif2'), document.getElementById('notif3')];
+let notifIdx = 0;
+
+function showNotification() {
+  if (!cityList.length) return;
+  const city = cityList[Math.floor(Math.random() * cityList.length)];
+  const meeting = MEETINGS[Math.floor(Math.random() * MEETINGS.length)];
+  const el = notifEls[notifIdx % 3];
+  el.querySelector('.notif__city').textContent = `${city.name}, ${city.state}`;
+  el.querySelector('.notif__meeting').textContent = meeting;
+
+  const px = offsetX + (city.col - 5) * cellW;
+  const py = offsetY + (city.row) * cellH;
+  el.style.left = Math.min(Math.max(px - 100, 10), W - 260) + 'px';
+  el.style.top = Math.max(py - 55, 10) + 'px';
+  el.classList.add('active');
+
+  activeGlows.set(`${city.col},${city.row}`, { start: performance.now(), duration: 3500 });
+  setTimeout(() => el.classList.remove('active'), 3000);
+  notifIdx++;
+}
+
+// ─────────────────────────────────────────────────
+// Draw loop
+// ─────────────────────────────────────────────────
+function draw(now) {
+  ctx.clearRect(0, 0, W, H);
+
+  // Prune old ripples
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    if (now - ripples[i].t > 1200) ripples.splice(i, 1);
+  }
+
+  const dotR = Math.min(cellW, cellH) * DOT_SIZE_FACTOR;
+
+  for (const [c, r] of landArray) {
+    const key = `${c},${r}`;
+    const px = offsetX + (c + 1) * cellW;
+    const py = offsetY + (r + 1) * cellH;
+
+    // Displacement from ripples + cursor
+    let dx = 0, dy = 0;
+    for (const rip of ripples) {
+      const dist = Math.hypot(px - rip.x, py - rip.y);
+      const age = (now - rip.t) / 1200;
+      const wave = rip.maxR * age;
+      const strength = Math.max(0, 1 - age) * Math.exp(-(((dist - wave) / 25) ** 2));
+      if (strength > 0.01) {
+        const a = Math.atan2(py - rip.y, px - rip.x);
+        dx += Math.cos(a) * strength * 2;
+        dy += Math.sin(a) * strength * 2;
+      }
+    }
+    const mDist = Math.hypot(px - mouseX, py - mouseY);
+    if (mDist < HOVER_RADIUS) {
+      const ms = (1 - mDist / HOVER_RADIUS) * HOVER_STRENGTH;
+      const ma = Math.atan2(py - mouseY, px - mouseX);
+      dx += Math.cos(ma) * ms;
+      dy += Math.sin(ma) * ms;
+    }
+
+    const fx = px + dx, fy = py + dy;
+    const isCity = cityMap.has(key);
+    const glow = activeGlows.get(key);
+
+    let alpha, color;
+
+    if (glow) {
+      const age = (now - glow.start) / glow.duration;
+      if (age > 1) {
+        activeGlows.delete(key);
+        alpha = isCity ? 0.55 : 0.18;
+        color = isCity ? '37,99,235' : '148,163,184';
+      } else {
+        const pulse = Math.sin(age * Math.PI) * 0.7 + 0.3;
+        alpha = 0.3 + pulse * 0.7;
+        color = '59,130,246';
+        ctx.beginPath(); ctx.arc(fx, fy, dotR * 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(59,130,246,${pulse * 0.1})`; ctx.fill();
+        ctx.beginPath(); ctx.arc(fx, fy, dotR * 2, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(96,165,250,${pulse * 0.18})`; ctx.fill();
+      }
+    } else if (isCity) {
+      alpha = 0.5 + Math.sin(now * 0.001 + c * 0.3 + r * 0.5) * 0.08;
+      color = '37,99,235';
+    } else {
+      alpha = 0.18 + Math.sin(now * 0.0008 + c * 0.2 + r * 0.3) * 0.04;
+      color = '148,163,184';
+    }
+
+    if (mDist < HOVER_ALPHA_RADIUS) alpha = Math.min(1, alpha + (1 - mDist / HOVER_ALPHA_RADIUS) * HOVER_ALPHA_BOOST);
+
+    ctx.beginPath();
+    ctx.arc(fx, fy, dotR, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${color},${alpha})`;
+    ctx.fill();
+  }
+
+  requestAnimationFrame(draw);
+}
+
+// ─────────────────────────────────────────────────
+// Boot
+// ─────────────────────────────────────────────────
+resize();
+window.addEventListener('resize', resize);
+loadData();
+</script>
+</body>
+</html>
