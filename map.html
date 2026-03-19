@@ -108,7 +108,7 @@
   .notif.active { opacity: 1; transform: translateY(0); }
 
   .notif__inner {
-    background: #fff;
+    background: #ffffffe0;
     border: 1px solid rgba(37,99,235,0.25);
     border-radius: 10px;
     padding: 0.55rem 0.9rem;
@@ -126,14 +126,6 @@
     display: flex;
     align-items: center;
     gap: 0.3rem;
-  }
-
-  .notif__city::before {
-    content: '';
-    width: 5px; height: 5px;
-    border-radius: 50%;
-    background: #2563eb;
-    flex-shrink: 0;
   }
 
   .notif__meeting {
@@ -197,6 +189,38 @@ const HOVER_ALPHA_BOOST  = 0.3; // Opacity added to dots at cursor center (0–1
 const RIPPLE_CHANCE     = 0.25;  // Probability (0–1) of spawning a ripple per mousemove
 const RIPPLE_RADIUS_MIN = 80;    // Minimum ripple spread radius in pixels
 const RIPPLE_RADIUS_MAX = 140;   // Maximum ripple spread radius in pixels
+const RIPPLE_LIFETIME   = 1200;  // Ripple lifespan in milliseconds
+const RIPPLE_SHARPNESS  = 25;    // Wave band tightness (lower = broader waves)
+const RIPPLE_PUSH       = 2;     // Max dot displacement from a ripple wave (px)
+
+// ── Dot colors (as 'R,G,B' strings for use in rgba()) ────────
+const COLOR_LAND        = '148,163,184'; // Idle land dot        (slate-400)
+const COLOR_CITY        = '37,99,235';   // Idle city dot        (blue-600)
+const COLOR_GLOW        = '59,130,246';  // Active glow dot      (blue-500)
+const COLOR_GLOW_INNER  = '96,165,250';  // Inner glow halo ring (blue-400)
+
+// ── Dot opacity ───────────────────────────────────────────────
+const ALPHA_LAND        = 0.18;  // Base opacity for land dots
+const ALPHA_LAND_ANIM   = 0.04;  // Idle flicker amplitude for land dots
+const ALPHA_CITY        = 0.45;  // Base opacity for city dots
+const ALPHA_CITY_ANIM   = 0.08;  // Idle flicker amplitude for city dots
+const ALPHA_GLOW_BASE   = 0.4;   // Glow dot minimum opacity during pulse
+const ALPHA_GLOW_RANGE  = 0.7;   // Glow dot pulse opacity range (added on top of base)
+const ALPHA_GLOW_OUTER  = 0.10;  // Outer halo ring peak opacity
+const ALPHA_GLOW_INNER  = 0.18;  // Inner halo ring peak opacity
+
+// ── Animation speeds ──────────────────────────────────────────
+const ANIM_SPEED_LAND   = 0.0008; // Idle flicker speed for land dots
+const ANIM_SPEED_CITY   = 0.001;  // Idle flicker speed for city dots
+
+// ── Glow halo size ────────────────────────────────────────────
+const GLOW_HALO_OUTER   = 3.5;   // Outer halo radius multiplier (× dot radius)
+const GLOW_HALO_INNER   = 2.0;   // Inner halo radius multiplier (× dot radius)
+
+// ── Notification timing ───────────────────────────────────────
+const NOTIF_INTERVAL    = 4000;  // Milliseconds between notifications
+const NOTIF_VISIBLE     = 3000;  // How long each popup stays visible (ms)
+const NOTIF_GLOW        = 3500;  // How long the city glow lasts (ms)
 
 // ═══════════════════════════════════════════════════════════════
 
@@ -351,7 +375,7 @@ async function loadData() {
   resize();
   requestAnimationFrame(draw);
   setTimeout(showNotification, 600);
-  setInterval(showNotification, 4000);
+  setInterval(showNotification, NOTIF_INTERVAL);
 }
 
 // ─────────────────────────────────────────────────
@@ -403,12 +427,12 @@ function showNotification() {
 
   const px = offsetX + (city.col - 5) * cellW;
   const py = offsetY + (city.row) * cellH;
-  el.style.left = Math.min(Math.max(px - 100, 10), W - 260) + 'px';
-  el.style.top = Math.max(py - 55, 10) + 'px';
+  el.style.left = Math.min(Math.max(px - 120, 10), W - 260) + 'px';
+  el.style.top = Math.max(py + 10, 10) + 'px';
   el.classList.add('active');
 
-  activeGlows.set(`${city.col},${city.row}`, { start: performance.now(), duration: 3500 });
-  setTimeout(() => el.classList.remove('active'), 3000);
+  activeGlows.set(`${city.col},${city.row}`, { start: performance.now(), duration: NOTIF_GLOW });
+  setTimeout(() => el.classList.remove('active'), NOTIF_VISIBLE);
   notifIdx++;
 }
 
@@ -420,7 +444,7 @@ function draw(now) {
 
   // Prune old ripples
   for (let i = ripples.length - 1; i >= 0; i--) {
-    if (now - ripples[i].t > 1200) ripples.splice(i, 1);
+    if (now - ripples[i].t > RIPPLE_LIFETIME) ripples.splice(i, 1);
   }
 
   const dotR = Math.min(cellW, cellH) * DOT_SIZE_FACTOR;
@@ -434,13 +458,13 @@ function draw(now) {
     let dx = 0, dy = 0;
     for (const rip of ripples) {
       const dist = Math.hypot(px - rip.x, py - rip.y);
-      const age = (now - rip.t) / 1200;
+      const age = (now - rip.t) / RIPPLE_LIFETIME;
       const wave = rip.maxR * age;
-      const strength = Math.max(0, 1 - age) * Math.exp(-(((dist - wave) / 25) ** 2));
+      const strength = Math.max(0, 1 - age) * Math.exp(-(((dist - wave) / RIPPLE_SHARPNESS) ** 2));
       if (strength > 0.01) {
         const a = Math.atan2(py - rip.y, px - rip.x);
-        dx += Math.cos(a) * strength * 2;
-        dy += Math.sin(a) * strength * 2;
+        dx += Math.cos(a) * strength * RIPPLE_PUSH;
+        dy += Math.sin(a) * strength * RIPPLE_PUSH;
       }
     }
     const mDist = Math.hypot(px - mouseX, py - mouseY);
@@ -461,23 +485,23 @@ function draw(now) {
       const age = (now - glow.start) / glow.duration;
       if (age > 1) {
         activeGlows.delete(key);
-        alpha = isCity ? 0.55 : 0.18;
-        color = isCity ? '37,99,235' : '148,163,184';
+        alpha = isCity ? ALPHA_CITY : ALPHA_LAND;
+        color = isCity ? COLOR_CITY : COLOR_LAND;
       } else {
-        const pulse = Math.sin(age * Math.PI) * 0.7 + 0.3;
-        alpha = 0.3 + pulse * 0.7;
-        color = '59,130,246';
-        ctx.beginPath(); ctx.arc(fx, fy, dotR * 3.5, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(59,130,246,${pulse * 0.1})`; ctx.fill();
-        ctx.beginPath(); ctx.arc(fx, fy, dotR * 2, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(96,165,250,${pulse * 0.18})`; ctx.fill();
+        const pulse = Math.sin(age * Math.PI) * ALPHA_GLOW_RANGE + ALPHA_GLOW_BASE;
+        alpha = ALPHA_GLOW_BASE + pulse * ALPHA_GLOW_RANGE;
+        color = COLOR_GLOW;
+        ctx.beginPath(); ctx.arc(fx, fy, dotR * GLOW_HALO_OUTER, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${COLOR_GLOW},${pulse * ALPHA_GLOW_OUTER})`; ctx.fill();
+        ctx.beginPath(); ctx.arc(fx, fy, dotR * GLOW_HALO_INNER, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${COLOR_GLOW_INNER},${pulse * ALPHA_GLOW_INNER})`; ctx.fill();
       }
     } else if (isCity) {
-      alpha = 0.5 + Math.sin(now * 0.001 + c * 0.3 + r * 0.5) * 0.08;
-      color = '37,99,235';
+      alpha = ALPHA_CITY + Math.sin(now * ANIM_SPEED_CITY + c * 0.3 + r * 0.5) * ALPHA_CITY_ANIM;
+      color = COLOR_CITY;
     } else {
-      alpha = 0.18 + Math.sin(now * 0.0008 + c * 0.2 + r * 0.3) * 0.04;
-      color = '148,163,184';
+      alpha = ALPHA_LAND + Math.sin(now * ANIM_SPEED_LAND + c * 0.2 + r * 0.3) * ALPHA_LAND_ANIM;
+      color = COLOR_LAND;
     }
 
     if (mDist < HOVER_ALPHA_RADIUS) alpha = Math.min(1, alpha + (1 - mDist / HOVER_ALPHA_RADIUS) * HOVER_ALPHA_BOOST);
